@@ -15,12 +15,28 @@ class DockerExecutor:
     """Execute commands in Docker containers"""
     
     def __init__(self):
-        """Initialize Docker client"""
+        """Initialize Docker client with explicit Unix socket"""
+        self.client = None
+        
         try:
-            self.client = docker.from_env()
-            logger.info("Docker client initialized successfully")
+            # Explicitly use Unix socket (works in containers)
+            self.client = docker.DockerClient(base_url='unix://var/run/docker.sock')
+            
+            # Test the connection
+            self.client.ping()
+            logger.info("Docker client initialized successfully via Unix socket")
+            
         except Exception as e:
-            logger.error(f"Failed to initialize Docker client: {e}")
+            logger.warning("=" * 60)
+            logger.warning("⚠️  Docker client initialization failed")
+            logger.warning(f"Error: {e}")
+            logger.warning("")
+            logger.warning("The API will start, but Docker functionality won't work.")
+            logger.warning("To fix this:")
+            logger.warning("  1. Verify socket is mounted: docker exec noc_api ls -la /var/run/docker.sock")
+            logger.warning("  2. Check docker-compose.yml has: /var/run/docker.sock:/var/run/docker.sock")
+            logger.warning("  3. Check socket permissions: docker exec noc_api ls -la /var/run/docker.sock")
+            logger.warning("=" * 60)
             self.client = None
     
     def exec_in_container(

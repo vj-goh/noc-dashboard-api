@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
 
-from app.api.routes import diagnostics, network, scan, radius, health
+from app.api.routes import diagnostics, health # network, scan, radius,
 from app.config import settings
 
 # Configure logging
@@ -39,9 +39,9 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, prefix="/api/health", tags=["Health"])
 app.include_router(diagnostics.router, prefix="/api/diagnostics", tags=["Diagnostics"])
-app.include_router(network.router, prefix="/api/network", tags=["Network"])
-app.include_router(scan.router, prefix="/api/scan", tags=["Scanning"])
-app.include_router(radius.router, prefix="/api/radius", tags=["RADIUS"])
+# app.include_router(network.router, prefix="/api/network", tags=["Network"])
+# app.include_router(scan.router, prefix="/api/scan", tags=["Scanning"])
+# app.include_router(radius.router, prefix="/api/radius", tags=["RADIUS"])
 
 @app.on_event("startup")
 async def startup_event():
