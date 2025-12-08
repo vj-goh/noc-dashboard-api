@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
 
-from app.api.routes import diagnostics, health # network, scan, radius,
+# Import all route modules
+from app.api.routes import diagnostics, health, network, scan, radius
 from app.config import settings
 
 # Configure logging
@@ -36,18 +37,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# Include all routers
 app.include_router(health.router, prefix="/api/health", tags=["Health"])
 app.include_router(diagnostics.router, prefix="/api/diagnostics", tags=["Diagnostics"])
-# app.include_router(network.router, prefix="/api/network", tags=["Network"])
-# app.include_router(scan.router, prefix="/api/scan", tags=["Scanning"])
-# app.include_router(radius.router, prefix="/api/radius", tags=["RADIUS"])
+app.include_router(network.router, prefix="/api/network", tags=["Network"])
+app.include_router(scan.router, prefix="/api/scan", tags=["Scanning"])
+app.include_router(radius.router, prefix="/api/radius", tags=["RADIUS"])
 
 @app.on_event("startup")
 async def startup_event():
     """Run on application startup"""
     logger.info("NOC Dashboard API starting up...")
     logger.info(f"API running in {'DEBUG' if settings.DEBUG else 'PRODUCTION'} mode")
+    logger.info("Available endpoints:")
+    logger.info("  - /api/health - Health checks")
+    logger.info("  - /api/diagnostics - Network diagnostics")
+    logger.info("  - /api/network - Routing & protocol info")
+    logger.info("  - /api/scan - Network scanning")
+    logger.info("  - /api/radius - Authentication testing")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -79,6 +86,30 @@ async def api_root():
         "documentation": {
             "swagger": "/docs",
             "redoc": "/redoc"
+        },
+        "features": {
+            "diagnostics": [
+                "Ping",
+                "Traceroute",
+                "Port checking",
+                "DNS lookups",
+                "ARP table"
+            ],
+            "network": [
+                "Routing tables",
+                "OSPF neighbors",
+                "BGP peers",
+                "Interface status"
+            ],
+            "scanning": [
+                "Network scans",
+                "Host discovery",
+                "Scan history"
+            ],
+            "radius": [
+                "Authentication testing",
+                "Server status"
+            ]
         }
     }
 
