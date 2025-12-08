@@ -183,7 +183,7 @@ async def get_routing_table(router: str):
             success=True,
             router=router,
             routes=routes,
-            total=len(routes)
+            count=len(routes)
         )
         
     except HTTPException:
@@ -233,7 +233,7 @@ async def get_ospf_neighbors(router: str = "router1"):
             success=True,
             router=router,
             neighbors=neighbors,
-            total=len(neighbors)
+            count=len(neighbors)
         )
         
     except HTTPException:
@@ -282,8 +282,9 @@ async def get_bgp_summary(router: str = "router1"):
         return BGPSummaryResponse(
             success=True,
             router=router,
+            local_as=65001 if router == 'router1' else 65002,  # AS numbers from your config
             peers=peers,
-            total=len(peers)
+            count=len(peers)
         )
         
     except HTTPException:

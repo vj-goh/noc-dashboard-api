@@ -79,7 +79,22 @@ async def check_port(request: PortCheckRequest):
             port=request.port,
             protocol=request.protocol
         )
-        return result
+        
+        # Transform for frontend - add 'open' boolean field
+        # Check if result has 'status' field that needs conversion
+        if hasattr(result, 'status') and not hasattr(result, 'open'):
+            return PortCheckResponse(
+                success=result.success,
+                host=result.host,
+                port=result.port,
+                protocol=result.protocol,
+                open=(result.status == "open"),  # Convert status string to boolean
+                service=result.service
+            )
+        else:
+            # Model already has correct fields
+            return result
+            
     except Exception as e:
         logger.error(f"Port check failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -97,7 +112,24 @@ async def dns_lookup(request: DNSLookupRequest):
             hostname=request.hostname,
             record_type=request.record_type
         )
-        return result
+        
+        # Transform for frontend - add 'resolved' boolean and 'ip_address' string
+        # Check if result needs transformation
+        if not hasattr(result, 'resolved') or not hasattr(result, 'ip_address'):
+            return DNSLookupResponse(
+                success=result.success,
+                hostname=result.hostname,
+                record_type=result.record_type,
+                resolved=(result.success and len(result.answers) > 0),  # Add boolean
+                ip_address=result.answers[0] if result.answers else None,  # Add single IP
+                answers=result.answers,
+                query_time=result.query_time,
+                nameserver=getattr(result, 'nameserver', None)
+            )
+        else:
+            # Model already has correct fields
+            return result
+            
     except Exception as e:
         logger.error(f"DNS lookup failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
