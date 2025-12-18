@@ -3,12 +3,13 @@ Network API Routes
 Routing tables, OSPF neighbors, BGP peers
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from app.config import settings
 from pathlib import Path
 from app.models import RoutingTableResponse, Route, OSPFNeighborsResponse, OSPFNeighbor, BGPSummaryResponse, BGPPeer
 from app.services.docker_executor import docker_executor
+from app.services.pcap_analyzer import PCAPAnalyzer
 from datetime import datetime
 import logging
 import re
@@ -16,22 +17,6 @@ import re
 DATA_DIR = Path(settings.DATA_DIR)
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-# Dummy classes for demonstration; replace with actual implementations if available
-class NetworkScanner:
-    def capture_packets(self, interface, duration, filter_expr):
-        # Implement actual packet capture logic here
-        return {"success": True, "message": f"Captured packets on {interface} for {duration}s with filter '{filter_expr}'"}
-    def list_captures(self):
-        # List all .pcap files in DATA_DIR
-        return [f.name for f in DATA_DIR.glob('*.pcap')]
-
-class PCAPAnalyzer:
-    def __init__(self, pcap_path):
-        self.pcap_path = pcap_path
-    def export_json(self):
-        # Dummy analysis result
-        return {"summary": f"Analysis of {self.pcap_path.name}"}
 
 # --- Packet Capture & Analysis Endpoints ---
 
@@ -41,29 +26,146 @@ async def start_packet_capture(
     duration: int = 10,
     filter_expr: str = ""
 ):
-    """Start packet capture on scanner container"""
-    scanner = NetworkScanner()
-    result = scanner.capture_packets(interface, duration, filter_expr)
-    return result
+    """Start packet capture on scanner container
+    
+    Args:
+        interface: Network interface to capture on
+        duration: Duration in seconds
+        filter_expr: Optional BPF filter expression
+    """
+    try:
+        logger.info(f"Starting packet capture on {interface} for {duration}s")
+        
+        # Use tcpdump to capture packets
+        pcap_filename = f"capture_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pcap"
+        output_file = DATA_DIR / pcap_filename
+        
+        # Build tcpdump command
+        cmd = ["tcpdump", "-i", interface, "-w", str(output_file), "-G", str(duration)]
+        if filter_expr:
+            cmd.append(filter_expr)
+        
+        success, output = docker_executor.exec_network_command(cmd, timeout=duration + 5)
+        
+        if success or output_file.exists():
+            logger.info(f"Packet capture completed: {pcap_filename}")
+            return {
+                "success": True,
+                "message": f"Captured packets on {interface} for {duration}s",
+                "filename": pcap_filename,
+                "file_size": output_file.stat().st_size if output_file.exists() else 0
+            }
+        else:
+            logger.warning(f"Packet capture may have failed: {output}")
+            return {
+                "success": False,
+                "message": "Packet capture failed or no traffic captured",
+                "error": output
+            }
+    
+    except Exception as e:
+        logger.error(f"Error starting packet capture: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/capture/list")
 async def list_captures():
     """List all captured PCAP files"""
-    scanner = NetworkScanner()
-    return {"success": True, "captures": scanner.list_captures()}
+    try:
+        if not DATA_DIR.exists():
+            return {"success": True, "captures": []}
+        
+        captures = [f.name for f in DATA_DIR.glob('*.pcap*')]
+        logger.info(f"Found {len(captures)} PCAP files")
+        return {"success": True, "captures": sorted(captures, reverse=True)}
+    except Exception as e:
+        logger.error(f"Error listing captures: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/capture/upload")
+async def upload_pcap(file: UploadFile = File(...)):
+    """Upload a PCAP file for analysis
+    
+    Args:
+        file: PCAP file to upload
+        
+    Returns:
+        Filename and status
+    """
+    try:
+        # Ensure DATA_DIR exists
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename from upload
+        filename = f"uploaded_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+        filepath = DATA_DIR / filename
+        
+        # Save file
+        contents = await file.read()
+        with open(filepath, 'wb') as f:
+            f.write(contents)
+        
+        logger.info(f"PCAP file uploaded: {filename} ({len(contents)} bytes)")
+        
+        return {
+            "success": True,
+            "filename": filename,
+            "size": len(contents),
+            "message": f"File uploaded successfully: {filename}"
+        }
+    
+    except Exception as e:
+        logger.error(f"Error uploading PCAP file: {e}")
+        raise HTTPException(status_code=500, detail=f"Error uploading file: {str(e)}")
 
 @router.post("/capture/analyze")
 async def analyze_pcap(filename: str):
-    """Analyze a PCAP file"""
+    """Analyze a PCAP file
+    
+    Args:
+        filename: Name of PCAP file in DATA_DIR
+        
+    Returns:
+        Analysis results including summary, protocols, conversations, etc.
+    """
     pcap_path = DATA_DIR / filename
+    
     if not pcap_path.exists():
-        return {"success": False, "error": "File not found"}
-    analyzer = PCAPAnalyzer(pcap_path)
-    return {
-        "success": True,
-        "filename": filename,
-        "analysis": analyzer.export_json()
-    }
+        logger.error(f"PCAP file not found: {pcap_path}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"PCAP file not found: {filename}"
+        )
+    
+    try:
+        logger.info(f"Analyzing PCAP file: {filename}")
+        
+        # Use the real PCAP analyzer
+        analyzer = PCAPAnalyzer(pcap_path)
+        analysis_result = analyzer.export_json()
+        
+        logger.info(f"Successfully analyzed {filename}: {analysis_result['summary']['total_packets']} packets")
+        
+        return {
+            "success": True,
+            "filename": filename,
+            "analysis": analysis_result
+        }
+    
+    except FileNotFoundError as e:
+        logger.error(f"PCAP file not found: {e}")
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        logger.error(f"Scapy not available: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="PCAP analysis tools not available (Scapy not installed)"
+        )
+    except Exception as e:
+        logger.error(f"Error analyzing PCAP file: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error analyzing PCAP file: {str(e)}"
+        )
 
 @router.get("/capture/download/{filename}")
 async def download_capture(filename: str):
