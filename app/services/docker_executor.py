@@ -59,16 +59,20 @@ class DockerExecutor:
             Tuple of (success, stdout, stderr)
         """
         if not self.client:
+            logger.error("Docker client not initialized - cannot execute command")
             return False, "", "Docker client not initialized"
         
         try:
             # Get container
+            logger.debug(f"Getting container: {container_name}")
             container = self.client.containers.get(container_name)
             
             # Check if container is running
             if container.status != 'running':
                 logger.warning(f"Container {container_name} is not running: {container.status}")
                 return False, "", f"Container is {container.status}"
+            
+            logger.debug(f"Container {container_name} is running")
             
             # Execute command
             logger.info(f"Executing in {container_name}: {command}")
@@ -86,6 +90,8 @@ class DockerExecutor:
             
             success = exit_code == 0
             
+            logger.debug(f"Command exit code: {exit_code}, stdout length: {len(stdout)}")
+            
             if not success:
                 logger.warning(f"Command failed with exit code {exit_code}: {stdout}")
             
@@ -95,7 +101,7 @@ class DockerExecutor:
             logger.error(f"Container not found: {container_name}")
             return False, "", f"Container '{container_name}' not found"
         except Exception as e:
-            logger.error(f"Error executing command in {container_name}: {e}")
+            logger.error(f"Error executing command in {container_name}: {e}", exc_info=True)
             return False, "", str(e)
     
     def get_container_status(self, container_name: str) -> dict:
@@ -164,6 +170,9 @@ class DockerExecutor:
         """
         container_name = getattr(settings, f"{router.upper()}_CONTAINER")
         
+        logger.info(f"Executing vtysh command on {router}: {command}")
+        logger.debug(f"Using container name: {container_name}")
+        
         # Format vtysh command
         vtysh_cmd = ["vtysh", "-c", command]
         
@@ -173,7 +182,12 @@ class DockerExecutor:
             timeout=10
         )
         
-        return success, stdout if success else stderr
+        if success:
+            logger.debug(f"vtysh command succeeded. Output length: {len(stdout)}")
+            return success, stdout
+        else:
+            logger.error(f"vtysh command failed on {container_name}: {stderr if stderr else stdout}")
+            return success, stderr if stderr else stdout
     
     def exec_network_command(self, command: list, timeout: int = 30) -> Tuple[bool, str]:
         """

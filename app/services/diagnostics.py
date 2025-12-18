@@ -253,7 +253,8 @@ class DiagnosticsService:
                 hostname=hostname,
                 record_type=record_type,
                 answers=[],
-                query_time=query_time
+                query_time=query_time,
+                nameserver="10.0.1.40"  # Our DNS server
             )
         
         # Parse answers

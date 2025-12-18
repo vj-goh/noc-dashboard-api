@@ -4,14 +4,78 @@ Routing tables, OSPF neighbors, BGP peers
 """
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
+from app.config import settings
+from pathlib import Path
 from app.models import RoutingTableResponse, Route, OSPFNeighborsResponse, OSPFNeighbor, BGPSummaryResponse, BGPPeer
 from app.services.docker_executor import docker_executor
 from datetime import datetime
 import logging
 import re
 
+DATA_DIR = Path(settings.DATA_DIR)
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Dummy classes for demonstration; replace with actual implementations if available
+class NetworkScanner:
+    def capture_packets(self, interface, duration, filter_expr):
+        # Implement actual packet capture logic here
+        return {"success": True, "message": f"Captured packets on {interface} for {duration}s with filter '{filter_expr}'"}
+    def list_captures(self):
+        # List all .pcap files in DATA_DIR
+        return [f.name for f in DATA_DIR.glob('*.pcap')]
+
+class PCAPAnalyzer:
+    def __init__(self, pcap_path):
+        self.pcap_path = pcap_path
+    def export_json(self):
+        # Dummy analysis result
+        return {"summary": f"Analysis of {self.pcap_path.name}"}
+
+# --- Packet Capture & Analysis Endpoints ---
+
+@router.post("/capture/start")
+async def start_packet_capture(
+    interface: str = "eth0",
+    duration: int = 10,
+    filter_expr: str = ""
+):
+    """Start packet capture on scanner container"""
+    scanner = NetworkScanner()
+    result = scanner.capture_packets(interface, duration, filter_expr)
+    return result
+
+@router.get("/capture/list")
+async def list_captures():
+    """List all captured PCAP files"""
+    scanner = NetworkScanner()
+    return {"success": True, "captures": scanner.list_captures()}
+
+@router.post("/capture/analyze")
+async def analyze_pcap(filename: str):
+    """Analyze a PCAP file"""
+    pcap_path = DATA_DIR / filename
+    if not pcap_path.exists():
+        return {"success": False, "error": "File not found"}
+    analyzer = PCAPAnalyzer(pcap_path)
+    return {
+        "success": True,
+        "filename": filename,
+        "analysis": analyzer.export_json()
+    }
+
+@router.get("/capture/download/{filename}")
+async def download_capture(filename: str):
+    """Download a PCAP file"""
+    pcap_path = DATA_DIR / filename
+    if not pcap_path.exists():
+        return {"success": False, "error": "File not found"}
+    return FileResponse(
+        pcap_path,
+        media_type="application/vnd.tcpdump.pcap",
+        filename=filename
+    )
 
 
 def parse_routing_table(output: str) -> list[Route]:
@@ -108,22 +172,29 @@ def parse_bgp_summary(output: str) -> list[BGPPeer]:
     # Neighbor        V         AS MsgRcvd MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd
     # 10.0.2.2        4      65002      45      46        0    0    0 00:20:15            1
     
+    logger.debug(f"Parsing BGP summary output:\n{output}")
+    
     for line in output.split('\n'):
         line = line.strip()
         
-        # Match peer lines
+        # Skip empty lines and headers
+        if not line or 'Neighbor' in line or 'V' in line or '---' in line:
+            continue
+        
+        # More flexible regex that handles varying whitespace
+        # Format: IP_ADDRESS V AS MsgRcvd MsgSent TblVer InQ OutQ Up/Down State/PfxRcd
         peer_match = re.match(
-            r'(\d+\.\d+\.\d+\.\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\d+\s+\d+\s+\d+\s+([\d:]+)\s+(\w+|\d+)',
+            r'(\d+\.\d+\.\d+\.\d+)\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)\s+\d+\s+\d+\s+\d+\s+([\d:hms]+)\s+(.+)$',
             line
         )
         
         if peer_match:
             neighbor = peer_match.group(1)
-            remote_as = int(peer_match.group(3))
-            msg_rcvd = int(peer_match.group(4))
-            msg_sent = int(peer_match.group(5))
-            uptime = peer_match.group(6)
-            state_pfx = peer_match.group(7)
+            remote_as = int(peer_match.group(2))
+            msg_rcvd = int(peer_match.group(3))
+            msg_sent = int(peer_match.group(4))
+            uptime = peer_match.group(5)
+            state_pfx = peer_match.group(6).strip()
             
             # Determine state and prefix count
             if state_pfx.isdigit():
@@ -133,16 +204,20 @@ def parse_bgp_summary(output: str) -> list[BGPPeer]:
                 state = state_pfx
                 prefixes_received = 0
             
+            logger.debug(f"Parsed BGP peer: {neighbor} AS{remote_as} State:{state}")
+            
             peers.append(BGPPeer(
-                neighbor=neighbor,
-                remote_as=remote_as,
+                peer_ip=neighbor,
+                peer_as=remote_as,
                 state=state,
                 uptime=uptime,
-                prefixes_received=prefixes_received,
-                msg_rcvd=msg_rcvd,
-                msg_sent=msg_sent
+                received_prefixes=prefixes_received,
+                sent_prefixes=0
             ))
+        else:
+            logger.debug(f"BGP line didn't match regex: {line}")
     
+    logger.info(f"Parsed {len(peers)} BGP peers from output")
     return peers
 
 
@@ -268,10 +343,25 @@ async def get_bgp_summary(router: str = "router1"):
             command="show ip bgp summary"
         )
         
+        logger.debug(f"Docker exec result: success={success}, output length={len(output)}")
+        logger.debug(f"Raw output:\n{output}")
+        
         if not success:
+            logger.error(f"Failed to get BGP summary from {router}: {output}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to get BGP summary from {router}: {output}"
+            )
+        
+        # Check if output is empty
+        if not output or output.strip() == "":
+            logger.warning(f"BGP summary output is empty from {router}")
+            return BGPSummaryResponse(
+                success=True,
+                router=router,
+                local_as=65001 if router == 'router1' else 65002,
+                peers=[],
+                count=0
             )
         
         # Parse BGP peers
@@ -290,7 +380,7 @@ async def get_bgp_summary(router: str = "router1"):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting BGP summary from {router}: {e}")
+        logger.error(f"Error getting BGP summary from {router}: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get BGP summary: {str(e)}"

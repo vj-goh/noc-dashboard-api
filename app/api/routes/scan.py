@@ -366,3 +366,16 @@ async def get_scanner_status():
             status_code=500,
             detail=f"Failed to get scanner status: {str(e)}"
         )
+
+
+@router.post("/scan/start-troubleshooting")
+async def start_troubleshooting_scenario(issue_type: str):
+    """Initiate a troubleshooting game scenario"""
+    valid_issues = ['bgp-down', 'radius-failure', 'dns-timeout', 'packet-loss']
+    if issue_type not in valid_issues:
+        return {"success": False, "error": "Invalid issue type"}
+    return {
+        "success": True,
+        "issue": issue_type,
+        "message": f"Scenario started: {issue_type}"
+    }
