@@ -33,7 +33,7 @@ async def create_network(request: CreateNetworkRequest):
             return {
                 "success": True,
                 "message": message,
-                "network": network.dict()
+                "network": network.model_dump()
             }
         else:
             raise HTTPException(status_code=400, detail=message)
@@ -66,7 +66,7 @@ async def get_network(network_id: str):
         
         return {
             "success": True,
-            "network": network.dict()
+            "network": network.model_dump()
         }
     except HTTPException:
         raise
@@ -111,7 +111,7 @@ async def create_dhcp_server(request: CreateDHCPServerRequest):
             return {
                 "success": True,
                 "message": message,
-                "server": server.dict()
+                "server": server.model_dump()
             }
         else:
             raise HTTPException(status_code=400, detail=message)
@@ -172,7 +172,7 @@ async def create_device(request: CreateDeviceRequest):
             return {
                 "success": True,
                 "message": message,
-                "device": device.dict()
+                "device": device.model_dump()
             }
         else:
             raise HTTPException(status_code=400, detail=message)
@@ -205,7 +205,7 @@ async def get_device(device_id: str):
         
         return {
             "success": True,
-            "device": device.dict()
+            "device": device.model_dump()
         }
     except HTTPException:
         raise
@@ -229,7 +229,7 @@ async def assign_manual_ip(device_id: str, request: ManualIPAssignmentRequest):
             return {
                 "success": True,
                 "message": message,
-                "device": device.dict()
+                "device": device.model_dump()
             }
         else:
             raise HTTPException(status_code=400, detail=message)
@@ -261,7 +261,7 @@ async def delete_device(device_id: str):
 # ===== Traffic Generation Endpoints =====
 
 @router.post("/traffic/start")
-async def start_traffic(device_id: str, request: StartTrafficRequest):
+async def start_traffic(request: StartTrafficRequest, device_id: str = Query(...)):
     """Start traffic generation from a device"""
     try:
         success, pattern_ids, message = virtual_infra_manager.start_traffic_patterns(
@@ -310,7 +310,7 @@ async def get_traffic_stats(pattern_id: str):
         if success:
             return {
                 "success": True,
-                "pattern": pattern.dict(),
+                "pattern": pattern.model_dump(),
                 "message": message
             }
         else:

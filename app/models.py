@@ -355,7 +355,6 @@ class CreateDeviceRequest(BaseModel):
 
 class StartTrafficRequest(BaseModel):
     """Request to start traffic generation"""
-    device_id: str
     traffic_patterns: List[TrafficPattern] = Field(..., min_items=1)
 
 class ManualIPAssignmentRequest(BaseModel):

@@ -89,16 +89,16 @@ class VirtualInfrastructureManager:
         try:
             if data_type == 'networks':
                 with open(self.networks_file, 'w') as f:
-                    json.dump({k: v.dict() for k, v in self.networks.items()}, f, default=str, indent=2)
+                    json.dump({k: v.model_dump() for k, v in self.networks.items()}, f, default=str, indent=2)
             elif data_type == 'dhcp_servers':
                 with open(self.dhcp_servers_file, 'w') as f:
-                    json.dump({k: v.dict() for k, v in self.dhcp_servers.items()}, f, default=str, indent=2)
+                    json.dump({k: v.model_dump() for k, v in self.dhcp_servers.items()}, f, default=str, indent=2)
             elif data_type == 'devices':
                 with open(self.devices_file, 'w') as f:
-                    json.dump({k: v.dict() for k, v in self.devices.items()}, f, default=str, indent=2)
+                    json.dump({k: v.model_dump() for k, v in self.devices.items()}, f, default=str, indent=2)
             elif data_type == 'traffic_patterns':
                 with open(self.traffic_patterns_file, 'w') as f:
-                    json.dump({k: v.dict() for k, v in self.traffic_patterns.items()}, f, default=str, indent=2)
+                    json.dump({k: v.model_dump() for k, v in self.traffic_patterns.items()}, f, default=str, indent=2)
         except Exception as e:
             logger.error(f"Error saving {data_type}: {e}")
     
@@ -216,8 +216,8 @@ class VirtualInfrastructureManager:
                           dns_servers: Optional[List[str]] = None) -> Tuple[bool, DHCPServerConfig, str]:
         """Create a DHCP server for a network"""
         try:
-            # Validate network exists
-            network = self.networks.get(network_id)
+            # Validate network exists (check both user-created and predefined)
+            network = self.get_network(network_id)
             if not network:
                 return False, None, f"Network {network_id} not found"
             
@@ -302,7 +302,7 @@ class VirtualInfrastructureManager:
             # Create interfaces for each network
             for idx, config in enumerate(network_configs):
                 network_id = config.get('network_id')
-                network = self.networks.get(network_id)
+                network = self.get_network(network_id)  # Use get_network to include predefined
                 
                 if not network:
                     return False, None, f"Network {network_id} not found"
