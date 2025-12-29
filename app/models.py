@@ -2,7 +2,7 @@
 Pydantic models for request/response validation
 """
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, ConfigDict
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -230,6 +230,188 @@ class DNSLookupResponse(BaseModel):
     answers: List[str]
     query_time: float  # milliseconds
     nameserver: Optional[str]
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+# ===== Error Response =====
+
+# ===== Virtual Infrastructure Models =====
+
+class NetworkInfo(BaseModel):
+    """Virtual network information"""
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+    
+    id: str = Field(..., description="Unique network identifier")
+    name: str = Field(..., description="Network name")
+    subnet: str = Field(..., description="Network subnet in CIDR notation (e.g., 10.0.1.0/24)")
+    gateway: str = Field(..., description="Gateway IP address")
+    dns_servers: List[str] = Field(default_factory=lambda: ["8.8.8.8", "8.8.4.4"])
+    created_at: datetime = Field(default_factory=datetime.now)
+    status: str = Field(default="active")  # 'active', 'inactive'
+
+class DHCPServerConfig(BaseModel):
+    """DHCP server configuration"""
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+    
+    id: str = Field(..., description="Unique DHCP server identifier")
+    network_id: str = Field(..., description="Associated network ID")
+    subnet: str = Field(..., description="DHCP subnet")
+    range_start: str = Field(..., description="DHCP pool start IP")
+    range_end: str = Field(..., description="DHCP pool end IP")
+    lease_time: int = Field(default=3600, ge=60, le=604800, description="Lease time in seconds")
+    gateway: str = Field(..., description="Gateway IP for this DHCP server")
+    dns_servers: List[str] = Field(default_factory=lambda: ["8.8.8.8", "8.8.4.4"])
+    created_at: datetime = Field(default_factory=datetime.now)
+    status: str = Field(default="running")  # 'running', 'stopped'
+
+class DHCPLease(BaseModel):
+    """DHCP lease information"""
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+    
+    ip_address: str
+    mac_address: str
+    hostname: Optional[str]
+    lease_time: int
+    expires_at: datetime
+    status: str  # 'active', 'expired'
+
+class DeviceType(str, Enum):
+    """Virtual device types"""
+    PHONE = "phone"
+    PRINTER = "printer"
+    COMPUTER = "computer"
+
+class DeviceInterface(BaseModel):
+    """Virtual device network interface"""
+    name: str = Field(..., description="Interface name (eth0, eth1, etc.)")
+    network_id: str = Field(..., description="Connected network ID")
+    mac_address: str = Field(..., description="MAC address")
+    ip_address: Optional[str] = Field(None, description="IPv4 address")
+    ipv6_address: Optional[str] = Field(None, description="IPv6 address")
+    dhcp_enabled: bool = Field(default=False, description="Use DHCP for this interface")
+    status: str = Field(default="up")  # 'up', 'down'
+
+class TrafficPattern(BaseModel):
+    """Network traffic generation pattern"""
+    pattern_type: str = Field(..., description="Type of traffic: 'http', 'dns', 'ssh', 'ftp', 'icmp', 'custom'")
+    destination: str = Field(..., description="Destination IP or hostname")
+    port: Optional[int] = Field(None, ge=1, le=65535, description="Destination port")
+    frequency: int = Field(default=5, ge=1, description="Frequency in seconds between packets")
+    duration: Optional[int] = Field(None, ge=1, description="Duration in seconds (None = infinite)")
+    packet_size: int = Field(default=64, ge=32, le=65535, description="Packet size in bytes")
+    protocol: Optional[str] = Field(None, description="Protocol details or custom payload")
+
+class VirtualDevice(BaseModel):
+    """Virtual network device configuration"""
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+    
+    id: str = Field(..., description="Unique device identifier")
+    name: str = Field(..., description="Device name")
+    device_type: DeviceType = Field(..., description="Type of device")
+    interfaces: List[DeviceInterface] = Field(default_factory=list, description="Network interfaces")
+    status: str = Field(default="stopped")  # 'running', 'stopped', 'error'
+    active_traffic_patterns: List[str] = Field(default_factory=list, description="IDs of active traffic patterns")
+    created_at: datetime = Field(default_factory=datetime.now)
+    last_packet_sent: Optional[datetime] = Field(None)
+
+class TrafficPatternInstance(BaseModel):
+    """Instance of a traffic pattern being generated"""
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+    
+    id: str = Field(..., description="Pattern instance ID")
+    device_id: str = Field(..., description="Device ID generating traffic")
+    pattern: TrafficPattern = Field(..., description="Traffic pattern configuration")
+    status: str = Field(default="active")  # 'active', 'paused', 'stopped'
+    packets_sent: int = Field(default=0)
+    bytes_sent: int = Field(default=0)
+    started_at: datetime = Field(default_factory=datetime.now)
+    last_sent_at: Optional[datetime] = Field(None)
+
+# ===== Request Models for Virtual Infrastructure =====
+
+class CreateNetworkRequest(BaseModel):
+    """Request to create a new virtual network"""
+    name: str = Field(..., min_length=1, max_length=64)
+    subnet: str = Field(..., description="CIDR notation (e.g., 10.0.1.0/24)")
+    gateway: str
+    dns_servers: List[str] = Field(default_factory=lambda: ["8.8.8.8", "8.8.4.4"])
+
+class CreateDHCPServerRequest(BaseModel):
+    """Request to create a DHCP server"""
+    network_id: str
+    range_start: str
+    range_end: str
+    lease_time: int = Field(default=3600, ge=60, le=604800)
+    gateway: str
+    dns_servers: List[str] = Field(default_factory=lambda: ["8.8.8.8", "8.8.4.4"])
+
+class CreateDeviceRequest(BaseModel):
+    """Request to create a virtual device"""
+    name: str = Field(..., min_length=1, max_length=64)
+    device_type: DeviceType
+    network_configs: List[Dict[str, Any]] = Field(
+        ...,
+        description="List of network interface configs with network_id, dhcp_enabled, and optional ip_address"
+    )
+
+class StartTrafficRequest(BaseModel):
+    """Request to start traffic generation"""
+    device_id: str
+    traffic_patterns: List[TrafficPattern] = Field(..., min_items=1)
+
+class ManualIPAssignmentRequest(BaseModel):
+    """Request to manually assign IP to device interface"""
+    device_id: str
+    interface_name: str
+    ip_address: str
+    network_id: str = Field(..., description="Must match the network the interface is connected to")
+
+# ===== Response Models for Virtual Infrastructure =====
+
+class NetworkListResponse(BaseModel):
+    """Response containing list of networks"""
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+    
+    success: bool
+    networks: List[NetworkInfo]
+    count: int
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+class DHCPServerListResponse(BaseModel):
+    """Response containing DHCP servers"""
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+    
+    success: bool
+    servers: List[DHCPServerConfig]
+    count: int
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+class DHCPLeasesResponse(BaseModel):
+    """Response containing DHCP leases"""
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+    
+    success: bool
+    server_id: str
+    leases: List[DHCPLease]
+    count: int
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+class DeviceListResponse(BaseModel):
+    """Response containing list of devices"""
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+    
+    success: bool
+    devices: List['VirtualDevice']
+    count: int
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+class TrafficPatternResponse(BaseModel):
+    """Response for traffic pattern operations"""
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+    
+    success: bool
+    message: str
+    pattern_id: Optional[str] = None
+    device_id: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.now)
 
 # ===== Error Response =====

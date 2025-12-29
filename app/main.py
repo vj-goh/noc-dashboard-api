@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 import logging
 
 # Import all route modules
-from app.api.routes import diagnostics, health, network, scan, radius
+from app.api.routes import diagnostics, health, network, scan, radius, devices
 from app.config import settings
 
 # Configure logging
@@ -43,6 +43,7 @@ app.include_router(diagnostics.router, prefix="/api/diagnostics", tags=["Diagnos
 app.include_router(network.router, prefix="/api/network", tags=["Network"])
 app.include_router(scan.router, prefix="/api/scan", tags=["Scanning"])
 app.include_router(radius.router, prefix="/api/radius", tags=["RADIUS"])
+app.include_router(devices.router, prefix="/api/devices", tags=["Virtual Devices"])
 
 @app.on_event("startup")
 async def startup_event():
